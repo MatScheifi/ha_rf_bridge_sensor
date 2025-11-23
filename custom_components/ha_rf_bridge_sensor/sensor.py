@@ -24,6 +24,10 @@ SIGNAL_UPDATE_SENSOR = "rf_bridge_update_{}"
 def load_parsers():
     """Loads all parser modules from the 'parsers' directory."""
     parsers_dir = os.path.join(os.path.dirname(__file__), "parsers")
+    if not os.path.exists(parsers_dir):
+        _LOGGER.warning(f"Parsers directory not found: {parsers_dir}")
+        return {}
+        
     parser_files = [f for f in os.listdir(parsers_dir) if f.endswith(".py") and not f.startswith("__")]
     
     loaded_parsers = {}
@@ -46,6 +50,7 @@ def load_parsers():
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up the sensor platform."""
+    _LOGGER.info("Setting up sensor platform for entry: %s", config_entry.entry_id)
     # Migrate options if they are in the old format
     devices = config_entry.options.get("devices", [])
     if devices and isinstance(devices[0], str):
@@ -63,15 +68,26 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     coordinator = RFBridgeCoordinator(hass, config_entry)
     coordinator.set_async_add_entities(async_add_entities)
+    
+    # Store coordinator in hass.data
     hass.data.setdefault(DOMAIN, {})[config_entry.entry_id] = coordinator
     
-    config_entry.async_on_unload(config_entry.add_update_listener(update_listener))
-    
+    # Load devices immediately
     coordinator.load_configured_devices()
-    await coordinator.async_subscribe()
+    
+    # Subscribe to MQTT and get the unsubscribe callback
+    mqtt_unsub = await coordinator.async_subscribe()
+    
+    # Register cleanup when the entry is unloaded
+    if mqtt_unsub:
+        config_entry.async_on_unload(mqtt_unsub)
+
+    # Listen for option updates
+    config_entry.async_on_unload(config_entry.add_update_listener(update_listener))
 
 async def update_listener(hass, entry):
     """Handle options update."""
+    _LOGGER.info("Options update listener called.")
     coordinator = hass.data[DOMAIN][entry.entry_id]
     coordinator.load_configured_devices()
 
@@ -96,12 +112,13 @@ class RFBridgeCoordinator:
         self.configured_devices = self.config_entry.options.get("devices", [])
         self._rf_id_map = {dev["rf_id"]: dev for dev in self.configured_devices}
         _LOGGER.debug(f"Loaded configured devices: {self.configured_devices}")
+        _LOGGER.debug(f"RF ID map updated: {self._rf_id_map}")
 
     @property
     def discovered_devices(self):
         """Return recently discovered devices."""
         now = time.time()
-        # Keep devices for 24 hours (86400 seconds)
+        # Keep devices for 24 hours
         recent_devices = {
             dev_id: info
             for dev_id, info in self._discovered_devices.items()
@@ -111,6 +128,7 @@ class RFBridgeCoordinator:
 
     async def async_subscribe(self):
         """Subscribe to the MQTT topic."""
+        _LOGGER.info(f"Subscribing to MQTT topic: {self.topic}")
         @callback
         def message_received(message):
             """Handle new MQTT messages."""
@@ -124,17 +142,21 @@ class RFBridgeCoordinator:
                     rf_data = payload["RfRaw"].get("Data")
 
                 if not rf_data:
+                    _LOGGER.debug(f"Ignoring MQTT message, no 'Data' found in payload: {payload}")
                     return
 
+                # Process data in the background
                 self.hass.async_create_task(self.async_process_rf_data(rf_data))
 
-            except Exception as e:
+            except (json.JSONDecodeError, Exception) as e:
                 _LOGGER.debug(f"Error processing MQTT payload: {e}")
 
-        await mqtt.async_subscribe(self.hass, self.topic, message_received)
+        # RETURN the unsubscribe callback
+        return await mqtt.async_subscribe(self.hass, self.topic, message_received)
 
     async def async_process_rf_data(self, rf_data):
         """Test RF data against all available parsers."""
+        _LOGGER.debug(f"Processing RF data: {rf_data}")
         for parser_name, parse_func in self.parsers.items():
             try:
                 parsed_data = parse_func(rf_data)
@@ -143,21 +165,30 @@ class RFBridgeCoordinator:
                     rf_id = parsed_data["id"]
                     
                     device_config = self._rf_id_map.get(rf_id)
+                    _LOGGER.debug(f"Device config for RF ID '{rf_id}': {device_config}")
+                    _LOGGER.debug(f"Configured RF ID map: {self._rf_id_map}")
+                    
                     if device_config:
                         internal_id = device_config["internal_id"]
+                        
+                        # Only add sensors if we haven't seen this internal_id in this session
                         if internal_id not in self.created_sensors:
+                            _LOGGER.info(f"New configured device matched. Internal ID '{internal_id}' not in created_sensors set. Adding new sensors.")
                             self.async_add_new_sensors(device_config, parsed_data)
                             self.created_sensors.add(internal_id)
-                        
+                        else:
+                            _LOGGER.debug(f"Device with internal ID '{internal_id}' already has sensors created. Skipping sensor creation.")
+                        # Dispatch update signal
                         async_dispatcher_send(self.hass, SIGNAL_UPDATE_SENSOR.format(internal_id), parsed_data)
-                    else:
-                        # Don't add to discovered if it's already configured
+                    elif rf_id not in self._rf_id_map:
+                        # Add to discovered list if not configured
                         if rf_id not in self._rf_id_map:
                             self._discovered_devices[rf_id] = {
                                 "data": parsed_data,
                                 "last_seen": time.time()
                             }
                     return
+                _LOGGER.debug(f"Parser '{parser_name}' did not match or returned no ID.")
             except Exception as e:
                 _LOGGER.error(f"Error in parser '{parser_name}': {e}")
 
@@ -172,9 +203,15 @@ class RFBridgeCoordinator:
         device_name = device_config["name"]
 
         if "temperature" in parsed_data:
-            new_sensors.append(RFBridgeSensor(self.hass, self.config_entry, internal_id, device_name, "Temperature", UnitOfTemperature.CELSIUS, SensorDeviceClass.TEMPERATURE))
+            new_sensors.append(RFBridgeSensor(
+                self.hass, self.config_entry, internal_id, device_name, 
+                "Temperature", UnitOfTemperature.CELSIUS, SensorDeviceClass.TEMPERATURE
+            ))
         if "humidity" in parsed_data:
-            new_sensors.append(RFBridgeSensor(self.hass, self.config_entry, internal_id, device_name, "Humidity", PERCENTAGE, SensorDeviceClass.HUMIDITY))
+            new_sensors.append(RFBridgeSensor(
+                self.hass, self.config_entry, internal_id, device_name, 
+                "Humidity", PERCENTAGE, SensorDeviceClass.HUMIDITY
+            ))
         
         if new_sensors:
             _LOGGER.info(f"Creating sensors for configured RF device '{device_name}'.")
@@ -182,6 +219,9 @@ class RFBridgeCoordinator:
 
 class RFBridgeSensor(SensorEntity):
     """Representation of a sensor that is updated by the coordinator."""
+    
+    _attr_has_entity_name = True # Modern HA naming convention
+
     def __init__(self, hass, config_entry, internal_id, device_name, sensor_type, unit, device_class):
         self._hass = hass
         self._config_entry = config_entry
@@ -189,9 +229,11 @@ class RFBridgeSensor(SensorEntity):
         self._device_name = device_name
         self._sensor_type = sensor_type
         
-        self._attr_name = f"{device_name} {sensor_type}"
+        # Name of the sensor (e.g., "Temperature"). 
+        # Combined with device name because _attr_has_entity_name = True
+        self._attr_name = sensor_type
+        
         self._attr_unique_id = f"{config_entry.entry_id}_{internal_id}_{sensor_type.lower()}"
-        self.entity_id = f"sensor.{device_name.lower().replace(' ', '_')}_{sensor_type.lower()}"
         self._attr_native_unit_of_measurement = unit
         self._attr_device_class = device_class
         self._attr_state_class = SensorStateClass.MEASUREMENT
@@ -200,11 +242,13 @@ class RFBridgeSensor(SensorEntity):
     @property
     def device_info(self):
         """Return device information to link this entity to the device."""
+        # FIX: Do NOT include entry_id in identifiers. 
+        # Use (DOMAIN, internal_id) to make it stable and avoid 'unknown config entry' errors.
         return {
             "identifiers": {(DOMAIN, self._internal_id)},
             "name": self._device_name,
             "manufacturer": "RF Bridge Sensor",
-            "via_device": (DOMAIN, self._config_entry.entry_id),
+            "via_device": (DOMAIN, self._config_entry.entry_id), # Optional: Links to the bridge entry
         }
 
     async def async_added_to_hass(self):
@@ -224,3 +268,4 @@ class RFBridgeSensor(SensorEntity):
         if value is not None:
             self._attr_native_value = value
             self.async_write_ha_state()
+        _LOGGER.debug(f"State update for {self.unique_id}. New value: {value}")

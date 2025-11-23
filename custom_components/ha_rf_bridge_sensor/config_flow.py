@@ -1,4 +1,5 @@
 import voluptuous as vol
+import logging
 import uuid
 from homeassistant import config_entries
 from homeassistant.core import callback
@@ -12,6 +13,8 @@ DATA_SCHEMA = vol.Schema({
     vol.Required("name", default="RF Bridge Sensors"): str,
     vol.Required(CONF_TOPIC, default="tele/RF_Bridge/RESULT"): str,
 })
+
+_LOGGER = logging.getLogger(__name__)
 
 class RFBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for RF Bridge Sensor."""
@@ -46,6 +49,7 @@ class RFBridgeOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None):
         """Main menu."""
+        _LOGGER.debug("Options flow: step_init")
         self.coordinator = self.hass.data[DOMAIN][self.config_entry.entry_id]
         
         return self.async_show_menu(
@@ -55,6 +59,7 @@ class RFBridgeOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_add(self, user_input=None):
         """Add menu."""
+        _LOGGER.debug("Options flow: step_add")
         return self.async_show_menu(
             step_id="add",
             menu_options=["add_manual", "add_from_discovered"]
@@ -62,6 +67,7 @@ class RFBridgeOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_add_manual(self, user_input=None):
         """Form to add a device manually."""
+        _LOGGER.debug("Options flow: step_add_manual")
         if user_input is not None:
             devices = self.options.get("devices", [])
             new_device = {
@@ -71,6 +77,8 @@ class RFBridgeOptionsFlowHandler(config_entries.OptionsFlow):
             }
             devices.append(new_device)
             self.options["devices"] = devices
+            _LOGGER.info(f"Adding new device manually: {new_device}. New options: {self.options}")
+            self.hass.data[DOMAIN][self.config_entry.entry_id].load_configured_devices()
             return self.async_create_entry(title="", data=self.options)
 
         return self.async_show_form(
@@ -83,12 +91,15 @@ class RFBridgeOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_add_from_discovered(self, user_input=None):
         """Form to add a device from the discovered list."""
+        _LOGGER.debug("Options flow: step_add_from_discovered")
         discovered = self.coordinator.discovered_devices
         if not discovered:
+            _LOGGER.warning("No discovered devices found to add from.")
             return self.async_abort(reason="no_discovered_devices")
         
         if user_input is not None:
             self.device_info['rf_id'] = user_input['rf_id']
+            _LOGGER.debug(f"Selected discovered device with RF ID: {self.device_info['rf_id']}")
             return await self.async_step_name_discovered()
 
         discovered_map = {
@@ -105,6 +116,7 @@ class RFBridgeOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_name_discovered(self, user_input=None):
         """Form to give a name to a discovered device."""
+        _LOGGER.debug("Options flow: step_name_discovered")
         if user_input is not None:
             devices = self.options.get("devices", [])
             new_device = {
@@ -114,6 +126,8 @@ class RFBridgeOptionsFlowHandler(config_entries.OptionsFlow):
             }
             devices.append(new_device)
             self.options["devices"] = devices
+            _LOGGER.info(f"Adding new device from discovered: {new_device}. New options: {self.options}")
+            self.hass.data[DOMAIN][self.config_entry.entry_id].load_configured_devices()
             return self.async_create_entry(title="", data=self.options)
 
         return self.async_show_form(
@@ -124,12 +138,15 @@ class RFBridgeOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_edit(self, user_input=None):
         """Form to select a device to edit."""
+        _LOGGER.debug("Options flow: step_edit")
         configured_devices = self.options.get("devices", [])
         if not configured_devices:
+            _LOGGER.warning("No configured devices to edit.")
             return self.async_abort(reason="no_devices_to_edit")
 
         if user_input is not None:
             self.device_info['internal_id'] = user_input['internal_id']
+            _LOGGER.debug(f"Selected device to edit with internal ID: {self.device_info['internal_id']}")
             return await self.async_step_edit_form()
 
         device_map = {
@@ -145,6 +162,7 @@ class RFBridgeOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_edit_form(self, user_input=None):
         """Form to edit device name and RF ID."""
+        _LOGGER.debug("Options flow: step_edit_form")
         if user_input is not None:
             devices = self.options.get("devices", [])
             for i, dev in enumerate(devices):
@@ -153,6 +171,8 @@ class RFBridgeOptionsFlowHandler(config_entries.OptionsFlow):
                     devices[i]["rf_id"] = user_input["rf_id"]
                     break
             self.options["devices"] = devices
+            _LOGGER.info(f"Editing device {self.device_info['internal_id']}. New options: {self.options}")
+            self.hass.data[DOMAIN][self.config_entry.entry_id].load_configured_devices()
             return self.async_create_entry(title="", data=self.options)
 
         device_to_edit = next(
@@ -170,16 +190,21 @@ class RFBridgeOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_delete(self, user_input=None):
         """Form to delete devices."""
+        _LOGGER.debug("Options flow: step_delete")
         configured_devices = self.options.get("devices", [])
         if not configured_devices:
+            _LOGGER.warning("No configured devices to delete.")
             return self.async_abort(reason="no_devices_to_delete")
 
         if user_input is not None:
             to_delete = user_input["internal_ids"]
+            _LOGGER.debug(f"Deleting devices with internal IDs: {to_delete}")
             devices = [
                 dev for dev in configured_devices if dev["internal_id"] not in to_delete
             ]
             self.options["devices"] = devices
+            _LOGGER.info(f"Devices deleted. New options: {self.options}")
+            self.hass.data[DOMAIN][self.config_entry.entry_id].load_configured_devices()
             return self.async_create_entry(title="", data=self.options)
         
         device_map = {
