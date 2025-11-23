@@ -12,7 +12,7 @@ A Home Assistant integration to create sensors from RF bridge messages.
 2. Search for "RF Bridge Sensor Custom" and install it.
 3. Restart Home Assistant.
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=matthias-stream&repository=ha_rf_bridge_sensor&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=MatScheifi&repository=ha_rf_bridge_sensor&category=integration)
 
 ### Manual Installation
 
