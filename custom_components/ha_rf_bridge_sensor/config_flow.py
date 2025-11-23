@@ -40,7 +40,6 @@ class RFBridgeOptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry):
         """Initialize options flow."""
-        self.config_entry = config_entry
         self.options = dict(config_entry.options)
         self.coordinator = None
         self.device_info = {}
