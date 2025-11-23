@@ -1,0 +1,21 @@
+name: Validate HACS
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 0 * * *"  # Runs every day at midnight
+  workflow_dispatch:      # Allows you to run it manually from GitHub UI
+
+permissions: {}
+
+jobs:
+  validate-hacs:
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: HACS validation
+        uses: "hacs/action@main"
+        with:
+          # CHANGE THIS VALUE below to match your project type!
+          # Options: integration, plugin, theme, appdaemon, python_script, template
+          category: "integration"
