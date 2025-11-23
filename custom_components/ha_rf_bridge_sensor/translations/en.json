@@ -1,0 +1,79 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "RF Bridge Setup",
+                "data": {
+                    "name": "Integration Name",
+                    "topic": "MQTT Topic"
+                }
+            }
+        },
+        "abort": {
+            "single_instance_allowed": "Only one instance of RF Bridge Sensor is allowed."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Device Management",
+                "menu_options": {
+                    "add": "Add a new device",
+                    "edit": "Edit an existing device",
+                    "delete": "Delete devices"
+                }
+            },
+            "add": {
+                "title": "Add a New Device",
+                "menu_options": {
+                    "add_manual": "Add manually",
+                    "add_from_discovered": "Add from discovered devices"
+                }
+            },
+            "add_manual": {
+                "title": "Add Device Manually",
+                "data": {
+                    "name": "Name",
+                    "rf_id": "RF ID"
+                }
+            },
+            "add_from_discovered": {
+                "title": "Add from Discovered Devices",
+                "data": {
+                    "rf_id": "Select Discovered Device"
+                }
+            },
+            "name_discovered": {
+                "title": "Name Your Device",
+                "description": "Give a name to the device with RF ID: `{rf_id}`",
+                "data": {
+                    "name": "Name"
+                }
+            },
+            "edit": {
+                "title": "Select Device to Edit",
+                "data": {
+                    "internal_id": "Device"
+                }
+            },
+            "edit_form": {
+                "title": "Edit Device",
+                "data": {
+                    "name": "Name",
+                    "rf_id": "RF ID"
+                }
+            },
+            "delete": {
+                "title": "Delete Devices",
+                "data": {
+                    "internal_ids": "Select devices to delete"
+                }
+            }
+        },
+        "abort": {
+            "no_discovered_devices": "No new devices have been discovered recently.",
+            "no_devices_to_edit": "There are no configured devices to edit.",
+            "no_devices_to_delete": "There are no configured devices to delete."
+        }
+    }
+}
